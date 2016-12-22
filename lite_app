@@ -1,0 +1,233 @@
+#!/usr/bin/env perl
+use Mojolicious::Lite;
+
+get '/' => sub {
+  my $c = shift;
+  $c->render(template => 'index');
+};
+
+app->start;
+__DATA__
+
+@@ index.html.ep
+<script src="https://unpkg.com/vue/dist/vue.js"></script>
+<!-- item template -->
+<script type="text/x-template" id="item-template">
+  <li>
+    <div
+      :class="{bold: isFolder}"
+      @click="toggle">
+      <span v-if="open">{{model.owner}} Objective: </span>
+      <span v-else>Key Result: </span>
+      {{model.objective}}
+      <span v-if="isFolder">
+        ({{statusbar(model).toFixed(0)}}%)
+        [{{open ? '-' : '+'}}]
+      </span>
+      <span v-else>
+        {{model.progress}} / {{model.target}} ({{statusbar(model).toFixed(0)}}%)
+      </span>
+    </div>
+    <ul v-show="open" v-if="isFolder">
+      <item
+        class="item"
+        v-for="model in model.key_results"
+        :model="model">
+      </item>
+      <li class="add" @click="addChild">+</li>
+    </ul>
+  </li>
+</script>
+
+<p>(You can double click on an item to edit the progress.)</p>
+
+<!-- the demo root element -->
+<ul id="demo">
+  <item
+    class="item"
+    :model="treeData">
+  </item>
+</ul>
+
+<script>
+// demo data
+var data = {
+  objective: 'Make $ for owners',
+  owner: 'General Manager',
+  key_results: [
+    {
+      objective: 'Win Super Bowl',
+      owner: 'Head Coach',
+      key_results: [
+        {
+          objective: '200 yd/game passing attack',
+          owner: 'Offense',
+          key_results: [
+            {
+              objective: '75% completion',
+              progress: 72,
+              target: 75,
+              units: '%'
+            }
+          ]
+        },
+        {
+          objective: '3rd ranked defense in NFL',
+          owner: 'Defense',
+          key_results: [
+            {
+              objective: 'Less than 100 yd passing per game',
+              progress: 106,
+              target: 100,
+              reverse: true,
+              units: 'yd'
+            }
+          ]
+        },
+        {
+          objective: '25yd punt return average',
+          owner: 'Special Teams',
+          key_results: [
+            {
+              objective: '3 blocked punts',
+              progress: 2,
+              target: 3,
+              units: 'blocks'
+            }
+          ]
+        },
+      ]
+    },
+    {
+      objective: 'Fill stands to 88%',
+      owner: 'Head of PR',
+      key_results: [
+        {
+          objective: 'Hire 3 colorful players',
+          owner: 'Scouts',
+          key_results: [
+            {
+              objective: 'Visit top 25 colleges',
+              progress: 15,
+              target: 25,
+              units: 'visits'
+            }
+          ]
+        },
+        {
+          objective: 'Get 2 Monday night games',
+          owner: 'News Staff',
+          key_results: [
+            {
+              objective: '5 ESPN special features',
+              progress: 4,
+              target: 5,
+              units: 'features'
+            }
+          ]
+        },
+        {
+          objective: 'Highlight key players',
+          owner: 'Publicity Agent',
+          key_results: [
+            {
+              objective: 'Hire 10 new cheerleaders',
+              progress: 6,
+              target: 10,
+              units: 'hires'
+            }
+          ]
+        },
+      ]
+    }
+  ]
+}
+
+// define the item component
+Vue.component('item', {
+  template: '#item-template',
+  props: {
+    model: Object
+  },
+  data: function () {
+    return {
+      open: false
+    }
+  },
+  computed: {
+    isFolder: function () {
+      return this.model.key_results &&
+        this.model.key_results.length
+    }
+  },
+  methods: {
+    statusbar: function (model) {
+      return _statusbar(model);
+    },
+    toggle: function () {
+      if (this.isFolder) {
+        this.open = !this.open
+      }
+    },
+    changeType: function () {
+      if (!this.isFolder) {
+        Vue.set(this.model, 'key_results', [])
+        this.addChild()
+        this.open = true
+      }
+    },
+    addChild: function () {
+      this.model.key_results.push({
+        objective: 'new stuff'
+      })
+    }
+  }
+})
+
+function _statusbar (model) {
+  if ( model.key_results ) {
+    //console.log("KR: "+model.key_results.length);
+    var values = [];
+    for (var i = 0; i < model.key_results.length; i++) {
+      //console.log("kr: ", model.key_results[i])
+      values[i] = _statusbar(model.key_results[i])
+    }
+    var sum = values.reduce(function(a,b){return a+b;});
+    //console.log(sum / values.length)
+    return sum / values.length;
+  } else if ( model.progress ) {
+    //console.log("Progress: "+model.progress);
+    if ( model.reverse ) {
+      return model.target / model.progress * 100
+    } else {
+      return model.progress / model.target * 100
+    }
+  }
+};
+
+// boot up the demo
+var demo = new Vue({
+  el: '#demo',
+  data: {
+    treeData: data
+  }
+})
+</script>
+
+<style scoped>
+body {
+  font-family: Menlo, Consolas, monospace;
+  color: #444;
+}
+.item {
+  cursor: pointer;
+}
+.bold {
+  font-weight: bold;
+}
+ul {
+  padding-left: 1em;
+  line-height: 1.5em;
+  list-style-type: dot;
+}
+</style>
