@@ -1,13 +1,140 @@
 #!/usr/bin/env perl
 use Mojolicious::Lite;
 
+use Mojo::Pg;
+use Mojo::JSON 'j';
+
+helper pg => sub { state $pg = Mojo::Pg->new('postgresql://stefan@%2fvar%2frun%2fpostgresql/pm') };
+app->pg->migrations->from_data->migrate;
+
 get '/' => sub {
   my $c = shift;
   $c->render(template => 'index');
 };
+get '/rdbms_tree' => sub {
+  my $c = shift;
+  my $json = $c->pg->db->query("WITH data AS(select array_to_json(array_agg(row_to_json(t))) as data from (SELECT id, name, COALESCE(get_children(id), '[]') as children from genres) t) SELECT get_tree(data) from data")->array->[0];
+  $c->render(inline => '<pre><%== dumper $j %></pre>', j => j($json));
+};
 
 app->start;
 __DATA__
+
+@@ rdbms_tree.html.ep
+<script>
+  var data = <%= $json %>
+  document.getElementById("json").innerHTML = JSON.stringify(data, undefined, 2);
+</script>
+<pre id="json"></pre>
+
+@@ migrations
+-- 1 up
+CREATE TABLE genres (
+    id serial NOT NULL PRIMARY KEY,
+    name character varying(255) NOT NULL,
+    parent_id integer REFERENCES genres (id)
+);
+INSERT INTO genres (name, parent_id) VALUES ('Arts & Photography',NULL);
+INSERT INTO genres (name, parent_id) VALUES ('Architecture',1);
+INSERT INTO genres (name, parent_id) VALUES ('Graphic Design',1);
+INSERT INTO genres (name, parent_id) VALUES ('Music',1); -- 4
+INSERT INTO genres (name, parent_id) VALUES ('Songbooks',4);
+INSERT INTO genres (name, parent_id) VALUES ('Instruments & Performers',4); -- 6
+INSERT INTO genres (name, parent_id) VALUES ('Brass',6);
+INSERT INTO genres (name, parent_id) VALUES ('Woodwinds',6);
+
+INSERT INTO genres (name, parent_id) VALUES ('Comics & Graphic Novels', NULL); -- 9
+INSERT INTO genres (name, parent_id) VALUES ('Comic Strips',9);
+INSERT INTO genres (name, parent_id) VALUES ('Graphic Novels',9);
+INSERT INTO genres (name, parent_id) VALUES ('Manga',9);
+
+INSERT INTO genres (name, parent_id) VALUES ('Comic Strips',NULL); -- 13
+INSERT INTO genres (name, parent_id) VALUES ('Mystery, Thriller and Suspense', NULL); -- 14
+INSERT INTO genres (name, parent_id) VALUES ('Mystery',14); -- 15
+INSERT INTO genres (name, parent_id) VALUES ('Hard Boiled',15);
+INSERT INTO genres (name, parent_id) VALUES ('Police Procedurals',15); -- 17
+INSERT INTO genres (name, parent_id) VALUES ('British Detectives',17);
+INSERT INTO genres (name, parent_id) VALUES ('FBI Agents',17);
+INSERT INTO genres (name, parent_id) VALUES ('Police Officers',17);
+
+INSERT INTO genres (name, parent_id) VALUES ('Nonfiction', NULL); -- 21
+INSERT INTO genres (name, parent_id) VALUES ('Biographies and Memoirs',21);
+INSERT INTO genres (name, parent_id) VALUES ('Business & Investing',21);
+INSERT INTO genres (name, parent_id) VALUES ('Computers & Technology',21); -- 24
+INSERT INTO genres (name, parent_id) VALUES ('Databases',24);
+INSERT INTO genres (name, parent_id) VALUES ('Hardware',24);
+INSERT INTO genres (name, parent_id) VALUES ('Software',24);
+CREATE OR REPLACE FUNCTION get_children(genre_id integer)
+RETURNS json AS $$
+DECLARE
+result json;
+BEGIN
+SELECT array_to_json(array_agg(row_to_json(t))) INTO result -- inject output into result variable
+FROM ( -- same CTE as above
+  WITH RECURSIVE genres_materialized_path AS (
+    SELECT id, name, ARRAY[]::INTEGER[] AS path
+    FROM genres WHERE parent_id IS NULL
+
+    UNION ALL
+
+    SELECT genres.id, genres.name, genres_materialized_path.path || genres.parent_id
+    FROM genres, genres_materialized_path
+    WHERE genres.parent_id = genres_materialized_path.id
+  ) SELECT id, name, ARRAY[]::INTEGER[] AS children FROM genres_materialized_path WHERE $1 = genres_materialized_path.path[array_upper(genres_materialized_path.path,1)] -- some column polish for a cleaner JSON
+) t;
+RETURN result;
+END;
+$$ LANGUAGE PLPGSQL;
+CREATE OR REPLACE FUNCTION get_tree(data json) RETURNS json AS $$
+
+var root = [];
+
+for(var i in data) {
+  build_tree(data[i]['id'], data[i]['name'], data[i]['children']);
+}
+
+function build_tree(id, name, children) {
+  var exists = getObject(root, id);
+  if(exists) {
+       exists['children'] = children;
+  }
+  else {
+    root.push({'id': id, 'name': name, 'children': children});
+  }
+}
+
+
+function getObject(theObject, id) {
+    var result = null;
+    if(theObject instanceof Array) {
+    for(var i = 0; i < theObject.length; i++) {
+        result = getObject(theObject[i], id);
+        if (result) {
+        break;
+        }
+    }
+    }
+    else
+    {
+    for(var prop in theObject) {
+        if(prop == 'id') {
+        if(theObject[prop] === id) {
+            return theObject;
+        }
+        }
+        if(theObject[prop] instanceof Object || theObject[prop] instanceof Array) {
+        result = getObject(theObject[prop], id);
+        if (result) {
+            break;
+        }
+        }
+    }
+    }
+    return result;
+}
+
+    return JSON.stringify(root);
+$$ LANGUAGE plv8 IMMUTABLE STRICT;
 
 @@ index.html.ep
 <script src="https://unpkg.com/vue/dist/vue.js"></script>
@@ -52,19 +179,24 @@ __DATA__
 <script>
 // demo data
 var data = {
+  id: 'abcbcbd',
   objective: 'Make $ for owners',
   owner: 'General Manager',
   key_results: [
     {
+      id: 'abcbcbd',
       objective: 'Win Super Bowl',
       owner: 'Head Coach',
       key_results: [
         {
+          id: 'abcbcbd',
           objective: '200 yd/game passing attack',
           owner: 'Offense',
           key_results: [
             {
+              id: 'abcbcbd',
               objective: '75% completion',
+              owner: 'Quarterback',
               progress: 72,
               target: 75,
               units: '%'
